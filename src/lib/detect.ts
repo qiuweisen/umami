@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { browserName, detectOS } from 'detect-browser';
 import ipaddr from 'ipaddr.js';
-import isLocalhost from 'is-localhost-ip';
 import { UAParser } from 'ua-parser-js';
 import { getCloudflareContext } from '@/lib/cloudflare-context';
 import { getIpAddress, stripPort } from '@/lib/ip';
@@ -60,9 +59,48 @@ function decodeHeader(s: string | undefined | null): string | undefined | null {
   return Buffer.from(s, 'latin1').toString('utf-8');
 }
 
+function normalizeIp(ip: string) {
+  let normalized = stripPort(ip).trim();
+
+  // Some headers may include IPv6 in brackets (eg. `[2001:db8::1]`)
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    normalized = normalized.slice(1, -1);
+  }
+
+  // Strip IPv6 zone id if present (eg. `fe80::1%lo0`)
+  const zoneIdx = normalized.indexOf('%');
+  if (zoneIdx !== -1) {
+    normalized = normalized.slice(0, zoneIdx);
+  }
+
+  return normalized;
+}
+
+function isLocalIp(ip: string) {
+  try {
+    const normalized = normalizeIp(ip);
+    const addr = ipaddr.parse(normalized);
+    const range =
+      addr.kind() === 'ipv6' && (addr as any).isIPv4MappedAddress?.()
+        ? (addr as any).toIPv4Address().range()
+        : addr.range();
+
+    return (
+      range === 'loopback' ||
+      range === 'private' ||
+      range === 'linkLocal' ||
+      range === 'uniqueLocal' ||
+      range === 'carrierGradeNat' ||
+      range === 'unspecified'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function getLocation(ip: string = '', headers: Headers, hasPayloadIP: boolean) {
   // Ignore local ips
-  if (!ip || (await isLocalhost(ip))) {
+  if (!ip || isLocalIp(ip)) {
     return null;
   }
 
@@ -103,7 +141,7 @@ export async function getLocation(ip: string = '', headers: Headers, hasPayloadI
     );
   }
 
-  const result = globalThis[MAXMIND]?.get(stripPort(ip));
+  const result = globalThis[MAXMIND]?.get(normalizeIp(ip));
 
   if (result) {
     const country = result.country?.iso_code ?? result?.registered_country?.iso_code;
