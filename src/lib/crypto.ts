@@ -53,7 +53,28 @@ export function md5(...args: string[]) {
 }
 
 export function secret() {
-  return hash(process.env.APP_SECRET || process.env.DATABASE_URL);
+  // Prefer a stable, explicit secret. Falling back to DATABASE_URL is supported
+  // for local/dev convenience, but on Cloudflare (Hyperdrive) DATABASE_URL may
+  // be populated lazily per isolate, which can make auth tokens intermittently
+  // fail verification across cold starts.
+  let seed = process.env.APP_SECRET || process.env.DATABASE_URL;
+
+  if (!seed) {
+    const cloudflareContext = (globalThis as any)[Symbol.for('__cloudflare-context__')] as
+      | { env?: Record<string, unknown> }
+      | undefined;
+    const hyperdrive = cloudflareContext?.env?.HYPERDRIVE as
+      | { connectionString?: string }
+      | undefined;
+
+    if (hyperdrive?.connectionString) {
+      seed = hyperdrive.connectionString;
+      // Ensure subsequent calls (in this isolate) are consistent.
+      process.env.DATABASE_URL ??= seed;
+    }
+  }
+
+  return hash(seed || '');
 }
 
 export function uuid(...args: any) {

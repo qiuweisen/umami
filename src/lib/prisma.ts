@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { readReplicas } from '@prisma/extension-read-replicas';
 import debug from 'debug';
 import { PrismaClient } from '@/generated/prisma/client';
+import { getCloudflareContext } from '@/lib/cloudflare-context';
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS, SESSION_COLUMNS } from './constants';
 import { filtersObjectToArray } from './params';
 import type { Operator, QueryFilters, QueryOptions } from './types';
@@ -189,8 +190,9 @@ async function rawQuery(sql: string, data: Record<string, any>, name?: string): 
     log('PARAMETERS:\n', data);
     log('NAME:\n', name);
   }
+  const client = getClient();
   const params = [];
-  const schema = getSchema();
+  const schema = getSchema(getRuntimeDatabaseUrl());
 
   if (schema) {
     await client.$executeRawUnsafe(`SET search_path TO "${schema}";`);
@@ -216,6 +218,7 @@ async function rawQuery(sql: string, data: Record<string, any>, name?: string): 
 async function pagedQuery<T>(model: string, criteria: T, filters?: QueryFilters) {
   const { page = 1, pageSize, orderBy, sortDescending = false, search } = filters || {};
   const size = +pageSize || DEFAULT_PAGE_SIZE;
+  const client = getClient();
 
   const data = await client[model].findMany({
     ...criteria,
@@ -290,20 +293,81 @@ function getSearchParameters(query: string, filters: Record<string, any>[]) {
 }
 
 function transaction(input: any, options?: any) {
-  return client.$transaction(input, options);
+  return getClient().$transaction(input, options);
 }
 
-function getSchema() {
-  const connectionUrl = new URL(process.env.DATABASE_URL);
+type HyperdriveBinding = {
+  connectionString: string;
+};
+
+function getRuntimeDatabaseUrl() {
+  const context = getCloudflareContext();
+  const env = context?.env;
+  const hyperdrive = env?.HYPERDRIVE as HyperdriveBinding | undefined;
+
+  return hyperdrive?.connectionString || process.env.DATABASE_URL;
+}
+
+function getSchema(databaseUrl?: string) {
+  if (!databaseUrl) {
+    return null;
+  }
+
+  const connectionUrl = new URL(databaseUrl);
 
   return connectionUrl.searchParams.get('schema');
 }
 
 function getClient() {
-  const url = process.env.DATABASE_URL;
-  const replicaUrl = process.env.DATABASE_REPLICA_URL;
+  const cloudflareContext = getCloudflareContext();
   const logQuery = process.env.LOG_QUERY;
-  const schema = getSchema();
+  const databaseUrl = getRuntimeDatabaseUrl();
+
+  if (cloudflareContext) {
+    const store = cloudflareContext as any;
+
+    store.__umami ??= {};
+
+    if (store.__umami.prisma) {
+      return store.__umami.prisma as PrismaClient;
+    }
+
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL is not defined.');
+    }
+
+    // Ensure other modules that rely on DATABASE_URL (eg. secret derivation, db type)
+    // see the same value in Cloudflare.
+    process.env.DATABASE_URL ??= databaseUrl;
+
+    const schema = getSchema(databaseUrl);
+
+    const adapter = new PrismaPg({ connectionString: databaseUrl, maxUses: 1 } as any, {
+      schema,
+    });
+
+    const client = new PrismaClient({
+      adapter,
+      errorFormat: 'pretty',
+      ...(logQuery ? PRISMA_LOG_OPTIONS : {}),
+    });
+
+    if (logQuery) {
+      client.$on('query', log);
+    }
+
+    store.__umami.prisma = client;
+
+    return client;
+  }
+
+  if (globalThis[PRISMA]) {
+    return globalThis[PRISMA] as PrismaClient;
+  }
+
+  const url = databaseUrl;
+  const replicaUrl = process.env.DATABASE_REPLICA_URL;
+  const schema = getSchema(databaseUrl);
 
   const baseAdapter = new PrismaPg({ connectionString: url }, { schema });
 
@@ -347,10 +411,10 @@ function getClient() {
   return extended;
 }
 
-const client = (globalThis[PRISMA] || getClient()) as ReturnType<typeof getClient>;
-
 export default {
-  client,
+  get client() {
+    return getClient();
+  },
   transaction,
   getAddIntervalQuery,
   getCastColumnQuery,

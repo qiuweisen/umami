@@ -2,8 +2,8 @@ import path from 'node:path';
 import { browserName, detectOS } from 'detect-browser';
 import ipaddr from 'ipaddr.js';
 import isLocalhost from 'is-localhost-ip';
-import maxmind from 'maxmind';
 import { UAParser } from 'ua-parser-js';
+import { getCloudflareContext } from '@/lib/cloudflare-context';
 import { getIpAddress, stripPort } from '@/lib/ip';
 import { safeDecodeURIComponent } from '@/lib/url';
 
@@ -66,6 +66,8 @@ export async function getLocation(ip: string = '', headers: Headers, hasPayloadI
     return null;
   }
 
+  const cloudflareContext = getCloudflareContext();
+
   if (!hasPayloadIP && !process.env.SKIP_LOCATION_HEADERS) {
     for (const provider of PROVIDER_HEADERS) {
       const countryHeader = headers.get(provider.countryHeader);
@@ -83,9 +85,18 @@ export async function getLocation(ip: string = '', headers: Headers, hasPayloadI
     }
   }
 
+  // OpenNext on Cloudflare Workers has no traditional filesystem available.
+  // If provider headers are missing (or bypassed), return null instead of attempting
+  // a MaxMind database lookup.
+  if (cloudflareContext) {
+    return null;
+  }
+
   // Database lookup
   if (!globalThis[MAXMIND]) {
     const dir = path.join(process.cwd(), 'geo');
+
+    const { default: maxmind } = await import('maxmind');
 
     globalThis[MAXMIND] = await maxmind.open(
       process.env.GEOLITE_DB_PATH || path.resolve(dir, 'GeoLite2-City.mmdb'),

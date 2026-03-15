@@ -1,4 +1,4 @@
-import { type ClickHouseClient, createClient } from '@clickhouse/client';
+import type { ClickHouseClient } from '@clickhouse/client';
 import { formatInTimeZone } from 'date-fns-tz';
 import debug from 'debug';
 import { CLICKHOUSE } from '@/lib/db';
@@ -21,7 +21,13 @@ const log = debug('umami:clickhouse');
 let clickhouse: ClickHouseClient;
 const enabled = Boolean(process.env.CLICKHOUSE_URL);
 
-function getClient() {
+async function loadClickhouseClient() {
+  return import('@clickhouse/client');
+}
+
+async function getClient() {
+  const { createClient } = await loadClickhouseClient();
+
   const {
     hostname,
     port,
@@ -248,7 +254,7 @@ async function findFirst(data: any[]) {
 
 async function connect() {
   if (enabled && !clickhouse) {
-    clickhouse = process.env.CLICKHOUSE_URL && (globalThis[CLICKHOUSE] || getClient());
+    clickhouse = process.env.CLICKHOUSE_URL && (globalThis[CLICKHOUSE] || (await getClient()));
   }
 
   return clickhouse;

@@ -1,7 +1,11 @@
 import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pkg from './package.json' with { type: 'json' };
 
 const TRACKER_SCRIPT = '/script.js';
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 const basePath = process.env.BASE_PATH || '';
 const cloudMode = process.env.CLOUD_MODE || '';
@@ -13,6 +17,7 @@ const forceSSL = process.env.FORCE_SSL || '';
 const frameAncestors = process.env.ALLOWED_FRAME_URLS || '';
 const trackerScriptName = process.env.TRACKER_SCRIPT_NAME || '';
 const trackerScriptURL = process.env.TRACKER_SCRIPT_URL || '';
+const isCloudflareBuild = process.env.CF_BUILD === '1';
 
 const contentSecurityPolicy = `
   default-src 'self';
@@ -165,6 +170,11 @@ if (cloudMode) {
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: false,
+  turbopack: {
+    // Prevent Next.js from incorrectly inferring monorepo root when multiple
+    // lockfiles exist on the machine.
+    root: rootDir,
+  },
   env: {
     basePath,
     cloudMode,
@@ -173,7 +183,7 @@ export default {
     defaultLocale,
   },
   basePath,
-  output: 'standalone',
+  ...(isCloudflareBuild ? {} : { output: 'standalone' }),
   eslint: {
     ignoreDuringBuilds: true,
   },

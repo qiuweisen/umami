@@ -1,6 +1,6 @@
 import type * as tls from 'node:tls';
 import debug from 'debug';
-import { Kafka, logLevel, type Producer, type RecordMetadata, type SASLOptions } from 'kafkajs';
+import type { Kafka, Producer, RecordMetadata, SASLOptions } from 'kafkajs';
 import { serializeError } from 'serialize-error';
 import { KAFKA, KAFKA_PRODUCER } from '@/lib/db';
 
@@ -13,7 +13,13 @@ let kafka: Kafka;
 let producer: Producer;
 const enabled = Boolean(process.env.KAFKA_URL && process.env.KAFKA_BROKER);
 
-function getClient() {
+async function loadKafkaJs() {
+  return import('kafkajs');
+}
+
+async function getClient() {
+  const { Kafka, logLevel } = await loadKafkaJs();
+
   const { username, password } = new URL(process.env.KAFKA_URL);
   const brokers = process.env.KAFKA_BROKER.split(',');
   const mechanism =
@@ -92,7 +98,10 @@ async function sendMessage(
 
 async function connect(): Promise<Kafka> {
   if (!kafka) {
-    kafka = process.env.KAFKA_URL && process.env.KAFKA_BROKER && (globalThis[KAFKA] || getClient());
+    kafka =
+      process.env.KAFKA_URL &&
+      process.env.KAFKA_BROKER &&
+      (globalThis[KAFKA] || (await getClient()));
 
     if (kafka) {
       producer = globalThis[KAFKA_PRODUCER] || (await getProducer());

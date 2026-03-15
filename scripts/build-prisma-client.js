@@ -9,6 +9,10 @@ esbuild
     target: 'es2020', // Target version of Node.js
     format: 'esm', // Use ESM format
     sourcemap: true, // Optional: generates source maps for debugging
+    loader: {
+      // Allow Prisma's Cloudflare wasm fallback import to be bundled without error in Node builds.
+      '.wasm': 'file',
+    },
     external: [
       '../src/generated/prisma', // exclude generated client
       '@prisma/client', // just in case

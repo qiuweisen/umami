@@ -14,6 +14,10 @@ package-lock.json
 /.next
 /out
 
+# OpenNext Cloudflare build output
+.open-next
+.wrangler
+
 # production
 /build
 /public/script.js
@@ -42,4 +46,3 @@ yarn-error.log*
 *.env.*
 
 *.dev.yml
-
