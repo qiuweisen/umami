@@ -1,7 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	// OpenNext output
-	"main": ".open-next/worker.js",
+	"main": "custom-worker.js",
 	// Change to your preferred worker name.
 	"name": "umami-prod",
 	// Keep this date <= today.

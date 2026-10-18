@@ -87,6 +87,14 @@ export async function POST(request: Request) {
 
     const sourceId = websiteId || pixelId || linkId;
 
+    // Bot check before any database/cache work (Workers CPU: bots used to cost a
+    // website lookup first). Same user-agent source as getClientInfo().
+    const earlyUserAgent = payload?.userAgent || request.headers.get('user-agent');
+
+    if (!process.env.DISABLE_BOT_CHECK && isbot(earlyUserAgent)) {
+      return json({ beep: 'boop' });
+    }
+
     // Cache check
     let cache: Cache | null = null;
 
